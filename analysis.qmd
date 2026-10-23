@@ -1,6 +1,98 @@
 ---
 title: "Analyzing US Births"
+author: "Greta Tillery"
 format: html
-author: Greta Tillery
+execute:
+  echo: false
 ---
 
+```{r}
+#| message: false
+library(tidyverse)
+library(readxl)
+
+# 1. Load and process dataset
+births_tibble = read_excel("data/us_births_1994_2014.xlsx") |> 
+  mutate(
+    day_of_week = factor(
+      day_of_week, 
+      levels = c("Sun", "Mon", "Tues", "Wed", "Thurs", "Fri", "Sat"), 
+      ordered = TRUE
+    )
+  )
+
+# 2. Generate Calendar Heatmap
+births_tibble |> 
+  group_by(month, date_of_month) |> 
+  summarize(avg_births = mean(births), .groups = "drop") |> 
+  ggplot(aes(x = date_of_month, y = month, fill = avg_births)) +
+  geom_tile(color = "white", linewidth = 0.1) +
+  scale_y_reverse(breaks = 1:12, labels = month.name) +
+  scale_x_continuous(breaks = seq(1, 31, by = 5)) +
+  scale_fill_viridis_c(option = "magma") +
+  theme_minimal() +
+  labs(
+    title = "US Births Calendar Heatmap",
+    x = "Day of Month",
+    y = "Month",
+    fill = "Mean Births"
+  )
+
+# 3. Exercise 9 & 11 Data Preparation
+christmas_births <- births_tibble |> 
+  filter(month == 12, date_of_month == 25) |> 
+  group_by(year, day_of_week) |> 
+  summarize(christmas_count = sum(births, na.rm = TRUE), .groups = "drop")
+
+baseline_births <- births_tibble |> 
+  filter(month == 12, (date_of_month >= 20 & date_of_month <= 24) | (date_of_month >= 27 & date_of_month <= 30)) |> 
+  group_by(year) |> 
+  summarize(baseline_avg = mean(births, na.rm = TRUE))
+
+final_exercise_9 <- christmas_births |> 
+  inner_join(baseline_births, by = "year") |> 
+  mutate(pct_of_baseline = (christmas_count / baseline_avg) * 100)
+
+# 4. Exercise 11 Plot
+final_exercise_9 |> 
+  ggplot(aes(x = year, y = pct_of_baseline)) +
+  geom_line(color = "grey70", linewidth = 0.8) +
+  geom_point(aes(color = day_of_week), size = 3) +
+  theme_minimal() +
+  labs(
+    title = "Christmas Births as a Percentage of Baseline by Year",
+    x = "Year",
+    y = "Percentage of Baseline (%)",
+    color = "Day of Week"
+  )
+
+# 5. Exercise 12: Linear Model Fit and R² Evaluation
+births_model <- lm(births ~ year + factor(month) + day_of_week, data = births_tibble)
+summary(births_model)[["r.squared"]]
+
+# 6. Exercise 13: Adjusting for Confounds and Collapsing Calendar Positions
+births_adjusted <- births_tibble |> 
+  mutate(pct_resid = residuals(births_model) / mean(births, na.rm = TRUE) * 100)
+
+calendar_resid <- births_adjusted |> 
+  filter(!(month == 2 & date_of_month == 29)) |> 
+  group_by(month, date_of_month) |> 
+  summarize(mean_pct_resid = mean(pct_resid, na.rm = TRUE), .groups = "drop") |> 
+  mutate(calendar_date = as.Date(paste(2001, month, date_of_month, sep = "-")))
+
+# 7. Exercise 14: Line Chart with Reference Line and Holiday Dip Annotations
+calendar_resid |> 
+  ggplot(aes(x = calendar_date, y = mean_pct_resid)) +
+  geom_line(color = "darkcyan", linewidth = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  # Labeling three of the deepest drop days (July 4th, Thanksgiving window, and Christmas)
+  annotate("text", x = as.Date("2001-07-04"), y = -15, label = "July 4th", color = "darkred", fontface = "bold", vjust = 1.2) +
+  annotate("text", x = as.Date("2001-11-25"), y = -18, label = "Thanksgiving", color = "darkred", fontface = "bold", vjust = 1.2) +
+  annotate("text", x = as.Date("2001-12-25"), y = -24, label = "Christmas", color = "darkred", fontface = "bold", vjust = 1.2) +
+  theme_minimal() +
+  labs(
+    title = "Daily Birth Residuals Across the Calendar Year (Controlled for Weekdays & Trends)",
+    x = "Date",
+    y = "Mean Percent Residual (%)"
+  )
+```
